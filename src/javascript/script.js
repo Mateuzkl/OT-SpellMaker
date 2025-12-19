@@ -276,82 +276,34 @@ async function loadAssets(type) {
     }
 
     // Creating Items
+    // Optimization: Render a subset or use virtual scroll for large lists
+    const renderLimit = 100; // Demo limit
 
-    let limit = 70; // Default for projectiles
-    if (type === 'magic') limit = 200; // Default for effects
-
-    // Try to get dynamic limit from Data Loader
-    if (window.datLoader && window.datLoader.subTypeCounts) {
-        if (type === 'magic' && window.datLoader.subTypeCounts.effect) {
-            limit = window.datLoader.subTypeCounts.effect;
-        } else if (type === 'distance' && window.datLoader.subTypeCounts.missile) {
-            limit = window.datLoader.subTypeCounts.missile;
-        }
-    }
-
-    for (let i = 1; i <= limit; i++) {
+    for (let i = 1; i <= Math.min(count, renderLimit); i++) {
         const item = document.createElement('div');
         item.className = 'asset-item';
-        // Show ID on hover
-        item.title = `ID: ${i}`;
+        if (i === selectedEffectId && type === selectedEffectType) item.classList.add('selected');
 
         const img = document.createElement('img');
 
         if (window.sprLoader && isSprLoaded) {
-            // Async loading
-            let thingData = null;
-            try {
-                thingData = await window.datLoader.getThing(type, i);
-            } catch (e) { console.error(e); }
+            const categoryKey = type === 'magic' ? 'Effect' : 'Missile';
+            const thingData = window.datLoader.getCategorySprites(i, categoryKey);
+            if (thingData && thingData.sprites && thingData.sprites.length > 0) {
+                try {
+                    const url = await window.sprLoader.getSpriteImage(thingData.sprites[0]);
+                    if (url) img.src = url;
+                    else img.src = 'src/images/unknown.png';
 
-            if (!thingData) {
-                // If invalid, maybe skip or show error
-                // prevent clutter
-            } else {
-                if (thingData.sprites && thingData.sprites.length > 0) {
-                    try {
-                        const url = await window.sprLoader.getSpriteImage(thingData.sprites[0]);
-                        if (url) img.src = url;
-                        else img.src = 'src/images/unknown.png';
-                    } catch (e) { img.src = 'src/images/unknown.png'; }
-                }
+                    item.dataset.frames = JSON.stringify(thingData.sprites);
+                } catch (e) { img.src = 'src/images/unknown.png'; }
             }
         } else {
-            // Fallback (Offline Mode)
-            // We only have limited local images, so maybe cap the loop?
-            if (i > 69) {
-                // If strictly offline, we don't have 200 images. 
-                // But let's keep logic simple.
-            }
-            if (type === 'magic') img.src = `src/images/effects/effect_${i}_.png`;
-            else img.src = `src/images/missiles/missile_${i}_.png`;
+            img.src = `src/images/effects/effect_${i}_.png`; // Fallback
         }
 
-        // Error fallback
-        img.onerror = function () { this.style.display = 'none'; };
-
+        item.onclick = () => selectAsset(i, type, img.src, item);
         item.appendChild(img);
-
-        // Add ID label overlay for clarity
-        const idLabel = document.createElement('span');
-        idLabel.style.position = 'absolute';
-        idLabel.style.bottom = '0';
-        idLabel.style.right = '0';
-        idLabel.style.fontSize = '10px';
-        idLabel.style.color = '#fff';
-        idLabel.style.background = 'rgba(0,0,0,0.7)';
-        idLabel.style.padding = '1px 3px';
-        idLabel.innerText = i;
-        item.appendChild(idLabel);
-
-        item.onclick = function () {
-            // Select logic
-            document.querySelectorAll('.asset-item').forEach(el => el.classList.remove('selected'));
-            item.classList.add('selected');
-            selectAsset(i, type, img.src, item);
-            showToast(`Selected ${type}: ${i}`, 'info');
-        };
-
         container.appendChild(item);
     }
 }
@@ -628,20 +580,7 @@ function generateRevScript(d, combats) {
         const idx = i + 1;
         s += `local combat${idx} = Combat()\n`;
         s += `combat${idx}:setParameter(COMBAT_PARAM_TYPE, ${d.combatType})\n`;
-
-        // Dynamic Effect Logic
-        // Find the first cell that has an effect to decide the combat effect
-        let effectId = 'CONST_ME_ENERGYAREA'; // Fallback
-        const gridKeys = Object.keys(c.grid);
-        if (gridKeys.length > 0) {
-            const firstCell = c.grid[gridKeys[0]];
-            // If the cell has an ID, use it. Try to map to CONST if possible, else use raw ID.
-            if (firstCell && firstCell.id !== undefined) {
-                effectId = firstCell.id;
-                // If you have a stored constant name, use it. Otherwise, valid number is fine.
-            }
-        }
-        s += `combat${idx}:setParameter(COMBAT_PARAM_EFFECT, ${effectId})\n`;
+        s += `combat${idx}:setParameter(COMBAT_PARAM_EFFECT, CONST_ME_ENERGYAREA)\n`; // Default fallback
 
         const areaTable = generateAreaMatrix(c.grid);
         s += `combat${idx}:setArea(createCombatArea(${areaTable}))\n\n`;
@@ -730,20 +669,10 @@ function generateCommonScript(d, combats) {
         const areaTable = generateAreaMatrix(c.grid);
         const delay = c.delay || 0;
 
-        // Find effect for this layer
-        let effectId = 'CONST_ME_ENERGYAREA';
-        const gridKeys = Object.keys(c.grid);
-        if (gridKeys.length > 0) {
-            const firstCell = c.grid[gridKeys[0]];
-            if (firstCell && firstCell.id !== undefined) {
-                effectId = firstCell.id;
-            }
-        }
-
         s += `    -- Combat ${i + 1} (Delay: ${delay}ms)\n`;
         s += `    {\n`;
         s += `        delay = ${delay},\n`;
-        s += `        effect = ${effectId},\n`;
+        s += `        effect = CONST_ME_ENERGYAREA, -- Update with correct effect if available\n`;
         s += `        type = ${d.combatType},\n`;
         s += `        area = ${areaTable}\n`;
         s += `    }${i < combats.length - 1 ? ',' : ''}\n`;
