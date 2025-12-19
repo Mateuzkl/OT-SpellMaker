@@ -580,7 +580,17 @@ function generateRevScript(d, combats) {
         const idx = i + 1;
         s += `local combat${idx} = Combat()\n`;
         s += `combat${idx}:setParameter(COMBAT_PARAM_TYPE, ${d.combatType})\n`;
-        s += `combat${idx}:setParameter(COMBAT_PARAM_EFFECT, CONST_ME_ENERGYAREA)\n`; // Default fallback
+
+        // Dynamic Effect: Check first cell for ID
+        let effectParam = 'CONST_ME_ENERGYAREA';
+        const gridKeys = Object.keys(c.grid);
+        if (gridKeys.length > 0) {
+            const firstCell = c.grid[gridKeys[0]];
+            if (firstCell && firstCell.id !== undefined) {
+                effectParam = firstCell.id;
+            }
+        }
+        s += `combat${idx}:setParameter(COMBAT_PARAM_EFFECT, ${effectParam})\n`;
 
         const areaTable = generateAreaMatrix(c.grid);
         s += `combat${idx}:setArea(createCombatArea(${areaTable}))\n\n`;
@@ -669,10 +679,20 @@ function generateCommonScript(d, combats) {
         const areaTable = generateAreaMatrix(c.grid);
         const delay = c.delay || 0;
 
+        // Dynamic Effect
+        let effectParam = 'CONST_ME_ENERGYAREA';
+        const gridKeys = Object.keys(c.grid);
+        if (gridKeys.length > 0) {
+            const firstCell = c.grid[gridKeys[0]];
+            if (firstCell && firstCell.id !== undefined) {
+                effectParam = firstCell.id;
+            }
+        }
+
         s += `    -- Combat ${i + 1} (Delay: ${delay}ms)\n`;
         s += `    {\n`;
         s += `        delay = ${delay},\n`;
-        s += `        effect = CONST_ME_ENERGYAREA, -- Update with correct effect if available\n`;
+        s += `        effect = ${effectParam},\n`;
         s += `        type = ${d.combatType},\n`;
         s += `        area = ${areaTable}\n`;
         s += `    }${i < combats.length - 1 ? ',' : ''}\n`;
