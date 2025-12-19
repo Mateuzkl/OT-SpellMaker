@@ -1,5 +1,7 @@
 # 🧙‍♂️ Open Tibia Spell Maker
 
+**[Click here to use the Online Version](https://mateuzkl.github.io/OT-SpellMaker/)**
+
 Uma ferramenta web moderna para criar e editar spells de área para Open Tibia (TFS 1.x+).
 
 ## 🚀 Funcionalidades
@@ -22,6 +24,15 @@ Uma ferramenta web moderna para criar e editar spells de área para Open Tibia (
    - Use os botões de tamanho para ajustar o grid.
    - Botão **Test Animation** mostra um preview visual.
 7. **Gerar Código**: Copie o código Lua gerado.
+
+## 🤝 Contribution Workflow
+
+We welcome contributions to improve this tool!
+
+1. **Fork the repo**
+2. **Create a topic branch**
+3. **Add tests or reproducible examples when possible**
+4. **Open a PR describing the change and reasoning in English**
 
 ## 📦 Estrutura
 

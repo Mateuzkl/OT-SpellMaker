@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
@@ -7,336 +7,353 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
         integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
         crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="src/styles/styles.css">
 
-    <title>Open Tibia Spell Maker</title>
+    <title>OT Spell Maker AI - Ultra Smart TFS 1.x</title>
 </head>
 
 <body>
     <header>
         <div class="brand">
             <i class="fa-solid fa-wand-magic-sparkles"></i>
-            OT SpellMaker
+            OT SpellMaker <span class="badge-ai">AI</span>
         </div>
-        <div style="display: flex; gap: 15px; align-items: center;">
-            <div style="display: flex; gap: 10px; align-items: center;">
-                <label for="folderInput" class="action-btn" style="cursor: pointer;">
-                    <i class="fa-solid fa-folder-open"></i> Load Client Folder
+        <div class="header-controls">
+            <div class="file-control">
+                <label for="folderInput" class="action-btn">
+                    <i class="fa-solid fa-folder-open"></i> Load Assets (SPR/DAT)
                 </label>
                 <input type="file" id="folderInput" webkitdirectory directory multiple style="display: none;"
                     onchange="loadFiles(this)">
             </div>
-            <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 8px;">
-                <div style="display: flex; align-items: center; gap: 4px;">
+
+            <div class="toggles">
+                <label class="toggle-switch">
                     <input type="checkbox" id="extendedCheck" checked onchange="updateSettings()">
-                    <label for="extendedCheck">Extended</label>
-                </div>
-                <div style="display: flex; align-items: center; gap: 4px;">
+                    <span class="slider"></span>
+                    <span class="label">Extended</span>
+                </label>
+                <label class="toggle-switch">
                     <input type="checkbox" id="transparencyCheck" checked onchange="updateSettings()">
-                    <label for="transparencyCheck">Transparency</label>
-                </div>
+                    <span class="slider"></span>
+                    <span class="label">Transparency</span>
+                </label>
             </div>
-            <a href="#" style="color: var(--text-muted); text-decoration: none; font-size: 0.9rem;"
-                onclick="alert('Funcionalidade em desenvolvimento')"><i class="fa-brands fa-github"></i> Repository</a>
+
+            <a href="#" class="github-link" onclick="alert('Repository Link Placeholder')">
+                <i class="fa-brands fa-github"></i>
+            </a>
         </div>
     </header>
 
-    <div class="main-container">
-        <!-- LEFT PANEL: PROPERTIES -->
+    <div class="main-layout">
+
+        <!-- === LEFT PANEL: PROPERTIES === -->
         <aside class="panel properties-panel">
-            <span class="panel-title">Spell Properties</span>
-
-            <!-- SPELL WORK TYPE -->
-            <div class="form-group">
-                <label>Spell Work</label>
-                <select class="form-control" id="spellWork" onchange="updateSpellWorkUI()">
-                    <option value="spell-name">Spell Name</option>
-                    <option value="room">Room (certify-allies)</option>
-                </select>
+            <div class="panel-header">
+                <i class="fa-solid fa-gear"></i> Spell Properties
             </div>
 
-            <!-- REWORK TYPE -->
-            <div class="form-group">
-                <label>Rework</label>
-                <select class="form-control" id="reworkType">
-                    <option value="new-lua">new-lua</option>
-                    <option value="legacy">legacy</option>
-                </select>
-            </div>
-
-            <div class="form-group">
-                <label>Spell Name</label>
-                <input type="text" class="form-control" id="spellName" value="Mega Energy Wave">
-            </div>
-
-            <div class="form-group">
-                <label>Words (Incantation)</label>
-                <input type="text" class="form-control" id="spellWords" value="exevo gran vis hur">
-            </div>
-
-            <!-- EFFECT CONFIGURATION -->
-            <div class="section-divider">Effect Configuration</div>
-
-            <div class="form-group">
-                <label>Effect Type</label>
-                <select class="form-control" id="effectTypeSelect">
-                    <option value="CONST_ME_NONE">None</option>
-                    <option value="CONST_ME_DRAWBLOOD">Blood</option>
-                    <option value="CONST_ME_LOSEENERGY">Lose Energy</option>
-                    <option value="CONST_ME_POFF">Poff</option>
-                    <option value="CONST_ME_BLOCKHIT">Block Hit</option>
-                    <option value="CONST_ME_EXPLOSIONAREA">Explosion Area</option>
-                    <option value="CONST_ME_EXPLOSIONHIT">Explosion Hit</option>
-                    <option value="CONST_ME_FIREAREA">Fire Area</option>
-                    <option value="CONST_ME_ENERGYAREA">Energy Area</option>
-                    <option value="CONST_ME_ICEAREA">Ice Area</option>
-                    <option value="CONST_ME_WARNING">Warning</option>
-                </select>
-            </div>
-
-            <div class="form-group">
-                <label>Effect Mode</label>
-                <select class="form-control" id="effectMode">
-                    <option value="send-magic">Send Magic</option>
-                    <option value="area">Area</option>
-                    <option value="distance">Distance</option>
-                </select>
-            </div>
-
-
-
-            <div class="form-group">
-                <label>Misfire ID (Optional)</label>
-                <input type="text" class="form-control" id="misfireId" placeholder="Leave empty if none">
-            </div>
-
-            <!-- SENDMAGIC OFFSETS -->
-            <div class="section-divider">SendMagic Offsets</div>
-
-            <div class="form-row">
-                <div class="form-group-half">
-                    <label>SGM-X</label>
-                    <input type="number" class="form-control" id="sgmX" value="0">
+            <div class="scroll-content">
+                <!-- Basic Info -->
+                <div class="section-group">
+                    <div class="form-group">
+                        <label>Spell Name</label>
+                        <input type="text" class="form-control" id="spellName" value="Mega Energy Wave"
+                            placeholder="e.g. Sudden Death">
+                    </div>
+                    <div class="form-group">
+                        <label>Words (Incantation)</label>
+                        <input type="text" class="form-control" id="spellWords" value="exevo gran vis hur"
+                            placeholder="e.g. adori vita vis">
+                    </div>
                 </div>
-                <div class="form-group-half">
-                    <label>SGM-Y</label>
-                    <input type="number" class="form-control" id="sgmY" value="0">
+
+                <div class="form-group">
+                    <label>Spell Type</label>
+                    <select class="form-control" id="spellType">
+                        <option value="instant">Instant</option>
+                        <option value="rune">Rune</option>
+                        <option value="conjure">Conjure</option>
+                    </select>
                 </div>
-            </div>
 
-            <div class="form-row">
-                <div class="form-group-half">
-                    <label>POS-X</label>
-                    <input type="number" class="form-control" id="posX" value="0">
+                <!-- Costs & Requirements -->
+                <div class="form-row">
+                    <div class="form-group-half">
+                        <label>Mana Cost</label>
+                        <input type="number" class="form-control" id="manaCost" value="340">
+                    </div>
+                    <div class="form-group-half">
+                        <label>Soul Cost</label>
+                        <input type="number" class="form-control" id="soulCost" value="0">
+                    </div>
                 </div>
-                <div class="form-group-half">
-                    <label>POS-Y</label>
-                    <input type="number" class="form-control" id="posY" value="0">
+
+                <div class="form-row">
+                    <div class="form-group-half">
+                        <label>Level Req.</label>
+                        <input type="number" class="form-control" id="levelReq" value="60">
+                    </div>
+                    <div class="form-group-half">
+                        <label>Mag. Lv</label>
+                        <input type="number" class="form-control" id="magLevelReq" value="0">
+                    </div>
                 </div>
+
+                <!-- Cooldowns -->
+                <div class="form-row">
+                    <div class="form-group-half">
+                        <label>Cooldown</label>
+                        <div class="input-with-suffix">
+                            <input type="number" id="cooldown" value="6000">
+                            <span>ms</span>
+                        </div>
+                    </div>
+                    <div class="form-group-half">
+                        <label>Group CD</label>
+                        <div class="input-with-suffix">
+                            <input type="number" id="groupCooldown" value="2000">
+                            <span>ms</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Vocations -->
+                <div class="form-group">
+                    <label>Vocations</label>
+                    <div class="vocation-grid">
+                        <label class="checkbox-btn"><input type="checkbox" class="voc-check" value="sorcerer" checked>
+                            Sorc</label>
+                        <label class="checkbox-btn"><input type="checkbox" class="voc-check" value="druid" checked>
+                            Druid</label>
+                        <label class="checkbox-btn"><input type="checkbox" class="voc-check" value="paladin">
+                            Pally</label>
+                        <label class="checkbox-btn"><input type="checkbox" class="voc-check" value="knight">
+                            Knight</label>
+                    </div>
+                </div>
+
+                <!-- Advanced Config -->
+                <div class="section-divider">Advanced Config</div>
+                <div class="form-row">
+                    <div class="form-group-half">
+                        <label>Cast Sound</label>
+                        <input type="text" class="form-control" id="castSound" placeholder="SOUND_EFFECT_TYPE">
+                    </div>
+                    <div class="form-group-half">
+                        <label>Impact Sound</label>
+                        <input type="text" class="form-control" id="impactSound" placeholder="SOUND_EFFECT_TYPE">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group-half">
+                        <label>Range</label>
+                        <input type="number" class="form-control" id="spellRange" value="7">
+                    </div>
+                    <div class="form-group-half">
+                        <label>Secondary Group</label>
+                        <input type="text" class="form-control" id="spellSecGroup" placeholder="">
+                    </div>
+                </div>
+
+                <!-- Combat Config -->
+                <div class="section-divider">Combat Config</div>
+
+                <div class="form-group">
+                    <label>Combat Type</label>
+                    <select class="form-control" id="combatType" onchange="smartSuggestEffect(this.value)">
+                        <option value="COMBAT_PHYSICALDAMAGE">Physical Damage</option>
+                        <option value="COMBAT_ENERGYDAMAGE" selected>Energy Damage</option>
+                        <option value="COMBAT_FIREDAMAGE">Fire Damage</option>
+                        <option value="COMBAT_ICEDAMAGE">Ice Damage</option>
+                        <option value="COMBAT_EARTHDAMAGE">Earth/Poison</option>
+                        <option value="COMBAT_DEATHDAMAGE">Death</option>
+                        <option value="COMBAT_HOLYDAMAGE">Holy</option>
+                        <option value="COMBAT_HEALING">Healing</option>
+                        <option value="COMBAT_LIFEDRAIN">Life Drain</option>
+                        <option value="COMBAT_MANADRAIN">Mana Drain</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Selected Effect</label>
+                    <div class="selected-asset-preview" id="effectPreviewBox">
+                        <img id="effectPreviewImg" src="" alt="None">
+                        <span id="effectPreviewName">ID: 11 (Energy)</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Target Type</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="targetType" value="self"> Self</label>
+                        <label><input type="radio" name="targetType" value="target"> Target</label>
+                        <label><input type="radio" name="targetType" value="direction" checked> Direction</label>
+                    </div>
+                </div>
+
+                <!-- Damn Formula -->
+                <div class="section-divider">Damage Formula</div>
+                <div class="form-group">
+                    <label>Formula Type</label>
+                    <select class="form-control" id="formulaType" onchange="updateFormulaInputs()">
+                        <option value="levelMagic">Level + Magic Level</option>
+                        <option value="skill">Skill Based</option>
+                        <option value="fixed">Fixed Values</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group-half">
+                        <label>Min Damage</label>
+                        <input type="number" class="form-control" id="minDamage" value="200">
+                    </div>
+                    <div class="form-group-half">
+                        <label>Max Damage</label>
+                        <input type="number" class="form-control" id="maxDamage" value="400">
+                    </div>
+                </div>
+
+                <!-- Options -->
+                <div class="section-divider">Options</div>
+                <div class="options-grid">
+                    <label class="toggle-option"><input type="checkbox" id="optAggressive" checked> Aggressive</label>
+                    <label class="toggle-option"><input type="checkbox" id="optPremium"> Premium</label>
+                    <label class="toggle-option"><input type="checkbox" id="optBlockWalls" checked> Block Walls</label>
+                    <label class="toggle-option"><input type="checkbox" id="optNeedTarget"> Need Target</label>
+                    <label class="toggle-option"><input type="checkbox" id="optNeedLearn"> Need Learn</label>
+                    <label class="toggle-option"><input type="checkbox" id="optNeedWeapon"> Need Weapon</label>
+                    <label class="toggle-option"><input type="checkbox" id="optAllowFarUse"> Far Use</label>
+                    <label class="toggle-option"><input type="checkbox" id="optPlayerNameParam"> Name Param</label>
+                    <label class="toggle-option"><input type="checkbox" id="optShowInDesc" checked> Show Desc</label>
+                    <label class="toggle-option"><input type="checkbox" id="optSecNeedLearn"> Sec. Learn</label>
+                </div>
+
             </div>
-
-            <div class="form-group">
-                <label>Drawn On Top</label>
-                <select class="form-control" id="drawnOnTop">
-                    <option value="0">Below (0)</option>
-                    <option value="1">Above (1)</option>
-                </select>
-            </div>
-
-            <!-- DAMAGE CONFIGURATION -->
-            <div class="section-divider">Damage Configuration</div>
-
-            <div class="form-group">
-                <label>Damage Type</label>
-                <select class="form-control" id="combatType">
-                    <option value="COMBAT_PHYSICALDAMAGE">Physical</option>
-                    <option value="COMBAT_ENERGYDAMAGE">Energy</option>
-                    <option value="COMBAT_FIREDAMAGE">Fire</option>
-                    <option value="COMBAT_ICEDAMAGE">Ice</option>
-                    <option value="COMBAT_EARTHDAMAGE">Earth</option>
-                    <option value="COMBAT_DEATHDAMAGE">Death</option>
-                    <option value="COMBAT_HOLYDAMAGE">Holy</option>
-                    <option value="COMBAT_HEALING">Healing</option>
-                </select>
-            </div>
-
-            <div class="form-group">
-                <label>Min Damage</label>
-                <input type="number" class="form-control" id="minDamage" value="100">
-            </div>
-
-            <div class="form-group">
-                <label>Max Damage</label>
-                <input type="number" class="form-control" id="maxDamage" value="200">
-            </div>
-
-            <!-- COMBAT AREA -->
-            <div class="section-divider">Combat Area</div>
-
-            <div class="form-group">
-                <label>Area Type</label>
-                <select class="form-control" id="areaType">
-                    <option value="single">Single Target (1x1)</option>
-                    <option value="3x3">Small Area (3x3)</option>
-                    <option value="5x5">Medium Area (5x5)</option>
-                    <option value="7x7">Large Area (7x7)</option>
-                    <option value="custom">Custom (Grid)</option>
-                </select>
-            </div>
-
-            <!-- COMBAT CONFIGURATION (for current combat) -->
-            <div class="section-divider">Current Combat Config</div>
-
-            <div class="form-group">
-                <label>Combat Name</label>
-                <input type="text" class="form-control" id="currentCombatName" value="Combat 1"
-                    onchange="updateCurrentCombat()">
-            </div>
-
-            <div class="form-group">
-                <label>Combat Delay (ms)</label>
-                <input type="number" class="form-control" id="currentCombatDelay" value="0"
-                    onchange="updateCurrentCombat()" oninput="updateCurrentCombat()">
-            </div>
-
-            <!-- SPELL PARAMETERS -->
-            <div class="section-divider">Spell Parameters</div>
-
-            <div class="form-group">
-                <label>Mana Cost</label>
-                <input type="number" class="form-control" id="spellMana" value="100">
-            </div>
-
-            <div class="form-group">
-                <label>Min Level</label>
-                <input type="number" class="form-control" id="spellLevel" value="50">
-            </div>
-
-            <div class="form-group">
-                <label>Cooldown (ms)</label>
-                <input type="number" class="form-control" id="spellCooldown" value="2000">
-            </div>
-
-            <button class="btn btn-primary" onclick="generateAndNotify()">
-                <i class="fa-solid fa-code"></i> Generate Script
-            </button>
-
-            <button class="btn btn-secondary" onclick="openCodeModal()" style="width: 100%; margin-top: 10px;">
-                <i class="fa-solid fa-eye"></i> View Lua Code
-            </button>
         </aside>
 
-        <!-- CENTER PANEL: EDITOR -->
+        <!-- === CENTER PANEL: EDITOR === -->
         <main class="panel editor-panel">
-            <!-- Combat Management Tabs -->
-            <div id="combatTabs" class="combat-tabs-container">
-                <!-- Dynamically generated by updateCombatUI() -->
-            </div>
-
-            <div class="toolbar">
-                <button class="toolbar-btn active" onclick="setGridSize(11)">11x11</button>
-                <button class="toolbar-btn" onclick="setGridSize(15)">15x15</button>
-                <button class="toolbar-btn" onclick="setGridSize(21)">21x21</button>
-                <div style="width: 1px; background: var(--border-color); margin: 0 5px;"></div>
-                <button class="toolbar-btn" onclick="clearGrid()"><i class="fa-solid fa-trash"></i> Clear</button>
-
-                <div style="width: 1px; background: var(--border-color); margin: 0 5px;"></div>
-
-                <!-- Background Selector -->
-                <select id="bgSelector" class="toolbar-btn" onchange="setGridBackground(this.value)"
-                    style="background-color: var(--input-bg); color: var(--text-main); border: 1px solid var(--border-color); padding: 6px; border-radius: 4px;">
-                    <option value="grid">Grid</option>
-                    <option value="light">Light Grass</option>
-                    <option value="dark">Dark Grass</option>
-                </select>
-
-                <!-- Grid Zoom -->
-                <div class="zoom-controls" style="display:flex; gap:8px; align-items:center;">
-                    <button class="toolbar-btn" onclick="zoomGrid(-1)" title="Zoom Out"><i
-                            class="fa-solid fa-minus"></i></button>
-                    <span id="zoomLevel"
-                        style="font-size:0.85rem; color:var(--accent-primary); font-weight:600; min-width:60px; text-align:center;">100%</span>
-                    <button class="toolbar-btn" onclick="zoomGrid(1)" title="Zoom In"><i
-                            class="fa-solid fa-plus"></i></button>
-                    <button class="toolbar-btn" onclick="fitToScreen()" title="Fit to Screen"><i
-                            class="fa-solid fa-expand"></i> Fit</button>
+            <div class="editor-header">
+                <div class="combat-manage">
+                    <!-- Tabs for multi-combat (later improvement) -->
+                    <!-- Combat Tabs -->
+                    <div class="combat-tabs" id="combatTabs">
+                        <button class="c-tab active">Combat 1</button>
+                        <button class="c-tab-add" onclick="addCombat()">+</button>
+                    </div>
+                    <div class="combat-delay-input">
+                        <label>Delay (ms):</label>
+                        <input type="number" id="combatDelayInput" value="0" min="0" step="50"
+                            onchange="updateCombatDelay(this.value)">
+                    </div>
                 </div>
-
-                <div style="width: 1px; background: var(--border-color); margin: 0 5px;"></div>
-
-                <button class="toolbar-btn" onclick="playAnimation()"><i class="fa-solid fa-play"></i> Test
-                    Animation</button>
-                <button class="toolbar-btn" onclick="stopAnimation()" style="background: rgba(255,0,0,0.2);"><i
-                        class="fa-solid fa-stop"></i> Stop</button>
-            </div>
-
-            <!-- Canvas Scroll Container -->
-            <div class="canvas-container">
-                <div id="spell-grid">
-                    <!-- Grid Cells Generate Here -->
+                <div class="editor-actions">
+                    <button class="btn-icon" onclick="openCodeModal()" title="View Code"><i
+                            class="fa-solid fa-code"></i></button>
+                    <button class="btn-icon" onclick="copyCode()" title="Quick Copy"><i
+                            class="fa-solid fa-copy"></i></button>
                 </div>
             </div>
 
+            <div class="canvas-wrapper">
+                <div class="toolbar-overlay">
+                    <div class="tool-group">
+                        <button class="tool-btn active" onclick="setGridSize(11)">11</button>
+                        <button class="tool-btn" onclick="setGridSize(15)">15</button>
+                        <button class="tool-btn" onclick="setGridSize(21)">21</button>
+                    </div>
+                    <div class="tool-group">
+                        <button class="tool-btn" onclick="zoomGrid(-1)"><i class="fa-solid fa-minus"></i></button>
+                        <span id="zoomLevel">100%</span>
+                        <button class="tool-btn" onclick="zoomGrid(1)"><i class="fa-solid fa-plus"></i></button>
+                        <button class="tool-btn" onclick="fitToScreen()"><i class="fa-solid fa-expand"></i></button>
+                    </div>
+                    <div class="tool-group">
+                        <button class="tool-btn danger" onclick="clearGrid()"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </div>
 
+                <div class="animation-overlay">
+                    <button class="anim-btn" onclick="playAnimation()"><i class="fa-solid fa-play"></i> Play</button>
+                    <button class="anim-btn" onclick="stopAnimation()"><i class="fa-solid fa-stop"></i></button>
+                </div>
+
+                <div class="canvas-scroll-area">
+                    <div id="spell-grid" class="spell-grid">
+                        <!-- Grid generated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="editor-footer">
+                <div class="status-bar">
+                    <span><i class="fa-solid fa-info-circle"></i> Tip: Left Click to Draw, Right Click to Erase (Coming
+                        soon).</span>
+                </div>
+                <button class="btn-generate" onclick="generateAndNotify()">
+                    GENERATE SPELL <i class="fa-solid fa-bolt"></i>
+                </button>
+            </div>
         </main>
 
-        <!-- RIGHT PANEL: ASSETS -->
-        <aside class="panel assets-panel">
-            <div class="assets-header">
-                <div class="assets-header-top">
-                    <div>
-                        <h3>Browser</h3>
-                    </div>
-                    <div id="previewContainer" style="display: none;">
-                        <img id="previewImage" src="">
-                    </div>
+        <!-- === RIGHT PANEL: BROWSER === -->
+        <aside class="panel browser-panel">
+            <div class="browser-header">
+                <div class="search-box">
+                    <i class="fa-solid fa-search"></i>
+                    <input type="text" id="detailsSearch" placeholder="Search ID or Name..." onkeyup="filterAssets()">
                 </div>
-                <div class="tabs">
-                    <div class="tab active" onclick="switchTab('magic')">Magic</div>
-                    <div class="tab" onclick="switchTab('distance')">Distance</div>
-                    <div class="tab" onclick="switchTab('items')">Items</div>
+                <div class="browser-tabs">
+                    <button class="b-tab active" onclick="switchTab('magic')">Magic</button>
+                    <button class="b-tab" onclick="switchTab('distance')">Dist</button>
+                    <button class="b-tab" onclick="switchTab('items')">Item</button>
                 </div>
+            </div>
 
-                <div class="assets-search">
-                    <input type="text" class="form-control" id="detailsSearch" placeholder="Search ID or Name..."
-                        onkeyup="filterAssets()">
+            <div class="assets-scroll-container" id="assetsGrid">
+                <!-- Assets loaded here -->
+                <div class="empty-state">
+                    <i class="fa-solid fa-folder-open"></i>
+                    <p>Load SPR/DAT files to browse assets</p>
                 </div>
-
-                <div class="assets-grid" id="assetsGrid">
-                    <!-- Assets Load Here -->
-                </div>
-
-                <div style="margin-top: 10px; font-size: 0.8rem; color: var(--text-muted); text-align: center;">
-                    Selected ID: <span id="selectedIdDisplay"
-                        style="color: var(--accent-color); font-weight: bold;">None</span>
-                    <br>
-                    <small>Click to select, then click on grid.</small>
-                </div>
+            </div>
         </aside>
+
     </div>
 
-    <!-- Code Modal -->
-    <div id="codeModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2><i class="fa-solid fa-code"></i> Generated Lua Code</h2>
-                <button class="modal-close" onclick="closeCodeModal()">
-                    <i class="fa-solid fa-times"></i>
-                </button>
+    <!-- CODE MODAL -->
+    <div id="codeModal" class="modal-overlay">
+        <div class="modal-card">
+            <div class="modal-head">
+                <h2><i class="fa-solid fa-file-code"></i> Export Spell</h2>
+                <button class="close-modal" onclick="closeCodeModal()"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="modal-tabs">
+                <button class="m-tab active" onclick="switchCodeType('revscript')">RevScript (TFS 1.x)</button>
+                <button class="m-tab" onclick="switchCodeType('common')">Common Script</button>
+                <button class="m-tab" onclick="switchCodeType('xml')">XML Entry</button>
             </div>
             <div class="modal-body">
-                <pre id="modalCodeOutput" class="code-display"></pre>
+                <div class="code-wrapper">
+                    <pre><code id="generatedCode" class="language-lua">-- Code will appear here</code></pre>
+                </div>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-primary" onclick="copyCode()">
-                    <i class="fa-solid fa-copy"></i> Copy Code
-                </button>
-                <button class="btn btn-secondary" onclick="closeCodeModal()">
-                    Close
-                </button>
+            <div class="modal-foot">
+                <span id="copyStatus">Ready to copy</span>
+                <div class="modal-actions">
+                    <button class="btn-sec" onclick="downloadCode()">Download .lua</button>
+                    <button class="btn-pri" onclick="copyCode()">Copy to Clipboard</button>
+                </div>
             </div>
         </div>
     </div>
+
+    <!-- NOTIFICATIONS -->
+    <div id="toastContainer"></div>
 
     <script src="src/javascript/spr_loader.js"></script>
     <script src="src/javascript/dat_loader.js"></script>

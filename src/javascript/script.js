@@ -1,52 +1,73 @@
+/* === OT SPELL MAKER AI - SMART CORE === */
+
 // Global State
 let currentGridSize = 11;
-let selectedEffectId = 11; // Default to energy
-let selectedEffectType = 'magic'; // magic, distance, item
-let currentZoom = 100; // Zoom percentage (50-150)
+let currentZoom = 100;
 
-// Multi-Combat System with Shared Grid
-let sharedGridData = {}; // key: "x,y", value: array of {combatIndex, effectId, imageUrl}
+// Multi-Combat State
 let combatAreas = [
-    { name: 'Combat 1', delay: 0, effectId: 11, effectType: 'magic' }
+    { id: 11, type: 'magic', grid: {} } // Combat 1 (default)
 ];
 let currentCombatIndex = 0;
 
-// Helper to get active combat data
-function getActiveCombat() {
-    return combatAreas[currentCombatIndex];
-}
+let isSprLoaded = false;
+let isDatLoaded = false;
+let currentCodeType = 'revscript'; // revscript, common, xml
 
-// Constants for Effects
-const MAGIC_EFFECTS = Array.from({ length: 60 }, (_, i) => i + 1);
-const DISTANCE_EFFECTS = Array.from({ length: 40 }, (_, i) => i + 1);
+// Animation State
+let animationInterval = null;
+let previewAnimationInterval = null;
 
+// Constants
+const MAX_MANA = 10000;
+const MAX_LEVEL = 2000;
+const PRESET_COMBOS = {
+    'COMBAT_ENERGYDAMAGE': { effect: 11, name: 'Energy' }, // CONST_ME_ENERGYAREA
+    'COMBAT_FIREDAMAGE': { effect: 6, name: 'Fire' },      // CONST_ME_FIREAREA
+    'COMBAT_ICEDAMAGE': { effect: 42, name: 'Ice' },       // CONST_ME_ICEAREA
+    'COMBAT_EARTHDAMAGE': { effect: 46, name: 'Earth' },   // CONST_ME_POISONAREA
+    'COMBAT_DEATHDAMAGE': { effect: 18, name: 'Death' },   // CONST_ME_MORTAREA
+    'COMBAT_HOLYDAMAGE': { effect: 49, name: 'Holy' },     // CONST_ME_HOLYAREA
+    'COMBAT_PHYSICALDAMAGE': { effect: 1, name: 'Blood' },  // CONST_ME_DRAWBLOOD
+    'COMBAT_HEALING': { effect: 12, name: 'Healing' },      // CONST_ME_MAGIC_BLUE
+};
+
+// Initialize
 function init() {
-    setGridSize(11);
+    setGridSize(11); // Initial set
     loadAssets('magic');
-    updateCombatUI(); // Initialize combat tabs
-    updateCombatPropertiesUI(); // Initialize combat properties
-    // Auto-fit to screen after short delay
-    setTimeout(fitToScreen, 100);
+    updateCombatTabs();
+    fitToScreen();
+
+    // Smart Defaults
+    document.getElementById('spellType').addEventListener('change', updateSmartDefaults);
 }
 
-/* --- Grid Logic --- */
+// On Load
+window.addEventListener('DOMContentLoaded', init);
+
+
+/* --- GRID & EDITOR LOGIC --- */
 function setGridSize(size) {
     currentGridSize = size;
-    gridData = {};
+    // We don't clear grid here on resize anymore, we keep data but might clip.
+    // Ideally we should warn or remap. For this MVP we just re-render.
 
-    // Update active buttons
-    document.querySelectorAll('.toolbar .toolbar-btn').forEach(btn => {
-        btn.classList.remove('active');
-        if (btn.innerText.includes(size + 'x')) btn.classList.add('active');
+    // Update active toolbar btns
+    document.querySelectorAll('.tool-btn').forEach(btn => {
+        if (btn.innerText == size) btn.classList.add('active');
+        else btn.classList.remove('active');
     });
 
     renderGrid();
+    fitToScreen();
 }
 
 function renderGrid() {
     const gridEl = document.getElementById('spell-grid');
     gridEl.innerHTML = '';
-    // Use the variable for sizing
+
+    // Set CSS grid sizing
     gridEl.style.gridTemplateColumns = `repeat(${currentGridSize}, var(--grid-cell-size, 32px))`;
     gridEl.style.gridTemplateRows = `repeat(${currentGridSize}, var(--grid-cell-size, 32px))`;
 
@@ -56,291 +77,806 @@ function renderGrid() {
         for (let x = 0; x < currentGridSize; x++) {
             const cell = document.createElement('div');
             cell.className = 'grid-cell';
+            const key = `${x},${y}`;
             const isCenter = (x === center && y === center);
 
             if (isCenter) {
                 cell.classList.add('center-cell');
-                cell.title = "Caster Position";
-
-                // Add Player Image at Center
-                const playerImg = document.createElement('img');
-                playerImg.src = 'src/resc/player.gif';
-                playerImg.className = 'center-player-img';
-                cell.appendChild(playerImg);
+                const pImg = document.createElement('img');
+                pImg.src = 'src/resc/player.gif';
+                pImg.className = 'center-player-img';
+                cell.appendChild(pImg);
             }
 
-            // On Click
+            // Click Handlers
             cell.onmousedown = (e) => {
                 e.preventDefault();
-                toggleCell(x, y, cell);
+                if (e.buttons === 1) toggleCell(x, y, cell);
             };
-
-            // Allow simple drag painting
             cell.onmouseenter = (e) => {
-                if (e.buttons === 1) {
-                    paintCell(x, y, cell);
-                }
+                if (e.buttons === 1) paintCell(x, y, cell);
+            };
+            cell.oncontextmenu = (e) => {
+                e.preventDefault();
+                eraseCell(x, y, cell);
             };
 
-            // Restore state if exists - show ALL effects from ALL combats
-            const key = `${x},${y}`;
-            if (sharedGridData[key] && sharedGridData[key].length > 0) {
-                // Show all effects in this cell (overlay)
-                sharedGridData[key].forEach(effect => {
-                    const effectImg = document.createElement('img');
-                    effectImg.src = effect.imageUrl;
-                    effectImg.style.position = 'absolute';
-                    effectImg.setAttribute('data-combat-index', effect.combatIndex);
-                    cell.appendChild(effectImg);
-                });
-            }
+            // Render Content from ALL combats
+            // We iterate all combats. Current combat shown normally. Others semi-transparent.
+            combatAreas.forEach((combat, idx) => {
+                if (combat.grid[key]) {
+                    const img = document.createElement('img');
+                    img.src = combat.grid[key].url;
+
+                    if (idx !== currentCombatIndex) {
+                        img.style.opacity = '0.3'; // Ghost other combats
+                        img.style.filter = 'grayscale(100%)';
+                        img.style.zIndex = '0';
+                    } else {
+                        img.style.zIndex = '1';
+                    }
+                    cell.appendChild(img);
+                }
+            });
 
             gridEl.appendChild(cell);
         }
     }
 }
 
-// Helpers
-function getImageUrlInGrid(id) {
-    // If we have access to loaded data...
-    // For now assuming we just use the selected type's context or fallback
-    // This is a bit tricky if we mixed types in grid?
-    // Current logic assumes ALL grid items are SAME type/id? 
-    // No, paintCell uses 'selectedEffectId'.
-
-    // Ideally we store TYPE in gridData too.
-    // But for now let's try to fetch from sprLoader if possible
-    // or just return placeholder.
-    // Since we can't easily get the blob URL back synchronously without storage,
-    // we might need to rely on the fact that the image was set in paintCell innerHTML.
-    // BUT renderGrid clears innerHTML.
-    // So we need to fetch again.
-    return ""; // handled by async re-paint or simplification?
-    // Actually, let's keep it simple: renderGrid re-renders EMPTY cells,
-    // then we re-apply gridData?
-    // The loop above ADDS content.
-    // We need an async way or cached URLs.
-    // Let's modify paintCell to store the SRC too if possible?
-    // Or just let the user re-paint? No that's bad.
-    // FIX: gridData[key] = { id: 1, type: 'magic' } ?
-    // Current gridData[key] = id.
-}
-
-/* --- Visual Features --- */
-function setGridBackground(mode) {
-    const grid = document.getElementById('spell-grid');
-    grid.classList.remove('bg-light', 'bg-dark', 'bg-grid');
-
-    if (mode === 'light') grid.classList.add('bg-light');
-    if (mode === 'dark') grid.classList.add('bg-dark');
-    if (mode === 'grid') grid.classList.add('bg-grid');
-}
-
-let currentGridCellSize = 32;
-function zoomGrid(dir) {
-    currentGridCellSize += (dir * 4); // Increment by 4px
-    // Limits
-    if (currentGridCellSize < 16) currentGridCellSize = 16;
-    if (currentGridCellSize > 128) currentGridCellSize = 128;
-
-    document.documentElement.style.setProperty('--grid-cell-size', `${currentGridCellSize}px`);
-}
-
 function toggleCell(x, y, cell) {
     const key = `${x},${y}`;
-    const center = Math.floor(currentGridSize / 2);
-    const combat = getActiveCombat();
+    const currentGrid = combatAreas[currentCombatIndex].grid;
 
-    // Check if current combat already has effect here
-    if (!sharedGridData[key]) {
-        sharedGridData[key] = [];
-    }
-
-    const existingIndex = sharedGridData[key].findIndex(e => e.combatIndex === currentCombatIndex);
-
-    if (existingIndex >= 0) {
-        // Remove current combat's effect
-        sharedGridData[key].splice(existingIndex, 1);
-        // Clean up empty arrays
-        if (sharedGridData[key].length === 0) {
-            delete sharedGridData[key];
-        }
+    if (currentGrid[key]) {
+        delete currentGrid[key];
     } else {
-        // Add effect for current combat
         paintCell(x, y, cell);
-        return; // paintCell will re-render
     }
-
-    // Re-render grid to show updated effects
-    renderGrid();
+    renderGrid(); // Full re-render needed to manage layers
 }
 
 function paintCell(x, y, cell) {
     const key = `${x},${y}`;
-    const combat = getActiveCombat();
+    const currentCombat = combatAreas[currentCombatIndex];
 
-    // Initialize array if needed
-    if (!sharedGridData[key]) {
-        sharedGridData[key] = [];
-    }
+    // Use the combat's selected effect or global selection
+    // Ideally each combat has its own "selected tool". 
+    // For now, we use the global selection and apply it to the current combat.
 
-    // Check if combat already has effect here
-    const existingIndex = sharedGridData[key].findIndex(e => e.combatIndex === currentCombatIndex);
+    let url = currentAssetImageUrl || `src/images/effects/effect_${currentCombat.id}_.png`;
 
-    if (existingIndex >= 0) {
-        // Update existing effect
-        sharedGridData[key][existingIndex] = {
-            combatIndex: currentCombatIndex,
-            effectId: combat.effectId,
-            imageUrl: currentAssetImageUrl || ''
-        };
-    } else {
-        // Add new effect for this combat
-        sharedGridData[key].push({
-            combatIndex: currentCombatIndex,
-            effectId: combat.effectId,
-            imageUrl: currentAssetImageUrl || ''
-        });
-    }
-
-    // Re-render to show all effects
+    currentCombat.grid[key] = {
+        id: selectedEffectId, // From global selection
+        type: selectedEffectType,
+        url: url
+    };
     renderGrid();
 }
 
-/* --- Multi-Combat Functions --- */
-function addCombat() {
-    const newIndex = combatAreas.length + 1;
-    const combat = getActiveCombat();
-    combatAreas.push({
-        name: `Combat ${newIndex}`,
-        effectId: combat.effectId,
-        effectType: combat.effectType,
-        delay: 0 // Default 0ms - user controls via properties
-    });
-    switchCombat(combatAreas.length - 1);
-    updateCombatUI();
-    updateCombatPropertiesUI();
-}
-
-function switchCombat(index) {
-    if (index < 0 || index >= combatAreas.length) return;
-    currentCombatIndex = index;
-    renderGrid();
-    updateCombatUI();
-    updateCombatPropertiesUI();
-    // Removed generateLuaCode() - only generate when clicking "Generate Script" button
-}
-
-/* --- Update Combat Properties UI --- */
-function updateCombatPropertiesUI() {
-    const combat = getActiveCombat();
-    const nameInput = document.getElementById('currentCombatName');
-    const delayInput = document.getElementById('currentCombatDelay');
-
-    if (nameInput && combat) {
-        nameInput.value = combat.name || 'Combat 1';
-    }
-    if (delayInput && combat) {
-        delayInput.value = combat.delay || 0;
-    }
-}
-
-/* --- Update Current Combat from Properties --- */
-function updateCurrentCombat() {
-    const combat = getActiveCombat();
-    const nameInput = document.getElementById('currentCombatName');
-    const delayInput = document.getElementById('currentCombatDelay');
-
-    if (nameInput) {
-        combat.name = nameInput.value;
-    }
-    if (delayInput) {
-        const newDelay = parseInt(delayInput.value);
-        combat.delay = isNaN(newDelay) ? 0 : newDelay;
-        console.log(`Combat ${currentCombatIndex + 1} delay updated to: ${combat.delay}ms`);
-    }
-
-    updateCombatUI();
-    // Removed generateLuaCode() - only generate when clicking "Generate Script" button
-}
-
-function deleteCombat(index) {
-    if (combatAreas.length <= 1) {
-        alert('Cannot delete the last combat area!');
-        return;
-    }
-    if (confirm(`Delete ${combatAreas[index].name}?`)) {
-        combatAreas.splice(index, 1);
-        if (currentCombatIndex >= combatAreas.length) {
-            currentCombatIndex = combatAreas.length - 1;
-        }
-        updateCombatUI();
+function eraseCell(x, y, cell) {
+    const key = `${x},${y}`;
+    const currentGrid = combatAreas[currentCombatIndex].grid;
+    if (currentGrid[key]) {
+        delete currentGrid[key];
         renderGrid();
-        // Removed generateLuaCode() - only generate when clicking "Generate Script" button
     }
-}
-
-function updateCombatUI() {
-    const container = document.getElementById('combatTabs');
-    if (!container) return;
-
-    container.innerHTML = '';
-
-    combatAreas.forEach((combat, index) => {
-        const tab = document.createElement('button');
-        tab.className = 'combat-tab' + (index === currentCombatIndex ? ' active' : '');
-
-        const label = document.createElement('span');
-        label.textContent = `${combat.name} (${combat.delay}ms)`;
-        label.style.cursor = 'pointer';
-        tab.appendChild(label);
-
-        tab.onclick = () => switchCombat(index);
-
-        // Delete button (only if more than 1 combat)
-        if (combatAreas.length > 1) {
-            const deleteBtn = document.createElement('span');
-            deleteBtn.className = 'combat-delete';
-            deleteBtn.innerHTML = '×';
-            deleteBtn.onclick = (e) => {
-                e.stopPropagation();
-                deleteCombat(index);
-            };
-            tab.appendChild(deleteBtn);
-        }
-
-        container.appendChild(tab);
-    });
-
-    // Add + button
-    const addBtn = document.createElement('button');
-    addBtn.className = 'combat-tab add-combat';
-    addBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
-    addBtn.onclick = addCombat;
-    addBtn.title = 'Add Combat Area';
-    container.appendChild(addBtn);
 }
 
 function clearGrid() {
-    // Remove all effects from current combat
-    Object.keys(sharedGridData).forEach(key => {
-        sharedGridData[key] = sharedGridData[key].filter(e => e.combatIndex !== currentCombatIndex);
-        if (sharedGridData[key].length === 0) {
-            delete sharedGridData[key];
-        }
+    combatAreas[currentCombatIndex].grid = {};
+    renderGrid();
+    showToast(`Combat ${currentCombatIndex + 1} cleared`, 'info');
+}
+
+
+/* --- MULTI-COMBAT TABS --- */
+function updateCombatTabs() {
+    const container = document.getElementById('combatTabs');
+    if (!container) return; // Guard if HTML not updated yet
+
+    container.innerHTML = '';
+
+    combatAreas.forEach((_, idx) => {
+        const btn = document.createElement('button');
+        btn.className = `c-tab ${idx === currentCombatIndex ? 'active' : ''}`;
+        btn.innerText = `Combat ${idx + 1}`;
+        btn.onclick = () => switchCombat(idx);
+        container.appendChild(btn);
     });
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'c-tab-add';
+    addBtn.innerText = '+';
+    addBtn.onclick = addCombat;
+    container.appendChild(addBtn);
+}
+
+function switchCombat(index) {
+    currentCombatIndex = index;
+    updateCombatTabs();
+    // Refresh properties UI if we were tracking per-combat properties (e.g. damage)
+    // For now assuming global properties shared.
+
+    // Load saved delay for this combat
+    const delay = combatAreas[index].delay || 0;
+    document.getElementById('combatDelayInput').value = delay;
+
     renderGrid();
 }
 
-// State for SPR
-let isDatLoaded = false;
-let isSprLoaded = false; // Added this missing global state variable
+function updateCombatDelay(val) {
+    // Ensure the current combat area exists and has a delay property
+    if (!combatAreas[currentCombatIndex]) {
+        combatAreas[currentCombatIndex] = { id: 11, type: 'magic', grid: {}, delay: 0 };
+    }
+    combatAreas[currentCombatIndex].delay = parseInt(val) || 0;
+}
 
-// Settings Update
+function addCombat() {
+    combatAreas.push({ id: 11, type: 'magic', grid: {} });
+    switchCombat(combatAreas.length - 1);
+    showToast(`Added Combat ${combatAreas.length}`, 'success');
+}
+
+
+/* --- ZOOM & VIEW --- */
+function zoomGrid(dir) {
+    const root = document.documentElement;
+    currentZoom += (dir * 10);
+    if (currentZoom < 20) currentZoom = 20;
+    if (currentZoom > 300) currentZoom = 300;
+    document.getElementById('zoomLevel').innerText = currentZoom + '%';
+    const newSize = 32 * (currentZoom / 100);
+    root.style.setProperty('--grid-cell-size', `${newSize}px`);
+}
+
+function fitToScreen() {
+    const container = document.querySelector('.canvas-scroll-area');
+    if (!container) return;
+    const w = container.clientWidth - 40;
+    const h = container.clientHeight - 40;
+    const sizeX = w / currentGridSize;
+    const sizeY = h / currentGridSize;
+    let optimalPx = Math.min(sizeX, sizeY);
+    if (optimalPx > 128) optimalPx = 128;
+    currentZoom = Math.floor((optimalPx / 32) * 100);
+    zoomGrid(0);
+}
+
+
+/* --- ASSET BROWSER & ANIMATION --- */
+let currentAssetImageUrl = '';
+let selectedEffectId = 11;
+let selectedEffectType = 'magic';
+
+function switchTab(type) {
+    document.querySelectorAll('.b-tab').forEach(t => t.classList.remove('active'));
+    event.target.classList.add('active');
+    loadAssets(type);
+}
+
+async function loadAssets(type) {
+    const container = document.getElementById('assetsGrid');
+    container.innerHTML = '';
+
+    if (!isSprLoaded && !isDatLoaded) { // Only show empty if NONE loaded
+        if (window.location.protocol !== 'file:') { // Allow demo mode in non-local
+            // Demo mode continue
+        } else {
+            container.innerHTML = `<div class="empty-state"><i class="fa-solid fa-folder-open"></i><p>Files not loaded (Demo fallback).</p></div>`;
+        }
+    }
+
+    selectedEffectType = type;
+    let count = 50;
+    if (window.datLoader) {
+        if (type === 'magic') count = window.datLoader.effectsCount;
+        else if (type === 'distance') count = window.datLoader.missilesCount;
+    }
+
+    // Creating Items
+
+    let limit = 70; // Default for projectiles
+    if (type === 'magic') limit = 200; // Default for effects
+
+    // Try to get dynamic limit from Data Loader
+    if (window.datLoader && window.datLoader.subTypeCounts) {
+        if (type === 'magic' && window.datLoader.subTypeCounts.effect) {
+            limit = window.datLoader.subTypeCounts.effect;
+        } else if (type === 'distance' && window.datLoader.subTypeCounts.missile) {
+            limit = window.datLoader.subTypeCounts.missile;
+        }
+    }
+
+    for (let i = 1; i <= limit; i++) {
+        const item = document.createElement('div');
+        item.className = 'asset-item';
+        // Show ID on hover
+        item.title = `ID: ${i}`;
+
+        const img = document.createElement('img');
+
+        if (window.sprLoader && isSprLoaded) {
+            // Async loading
+            let thingData = null;
+            try {
+                thingData = await window.datLoader.getThing(type, i);
+            } catch (e) { console.error(e); }
+
+            if (!thingData) {
+                // If invalid, maybe skip or show error
+                // prevent clutter
+            } else {
+                if (thingData.sprites && thingData.sprites.length > 0) {
+                    try {
+                        const url = await window.sprLoader.getSpriteImage(thingData.sprites[0]);
+                        if (url) img.src = url;
+                        else img.src = 'src/images/unknown.png';
+                    } catch (e) { img.src = 'src/images/unknown.png'; }
+                }
+            }
+        } else {
+            // Fallback (Offline Mode)
+            // We only have limited local images, so maybe cap the loop?
+            if (i > 69) {
+                // If strictly offline, we don't have 200 images. 
+                // But let's keep logic simple.
+            }
+            if (type === 'magic') img.src = `src/images/effects/effect_${i}_.png`;
+            else img.src = `src/images/missiles/missile_${i}_.png`;
+        }
+
+        // Error fallback
+        img.onerror = function () { this.style.display = 'none'; };
+
+        item.appendChild(img);
+
+        // Add ID label overlay for clarity
+        const idLabel = document.createElement('span');
+        idLabel.style.position = 'absolute';
+        idLabel.style.bottom = '0';
+        idLabel.style.right = '0';
+        idLabel.style.fontSize = '10px';
+        idLabel.style.color = '#fff';
+        idLabel.style.background = 'rgba(0,0,0,0.7)';
+        idLabel.style.padding = '1px 3px';
+        idLabel.innerText = i;
+        item.appendChild(idLabel);
+
+        item.onclick = function () {
+            // Select logic
+            document.querySelectorAll('.asset-item').forEach(el => el.classList.remove('selected'));
+            item.classList.add('selected');
+            selectAsset(i, type, img.src, item);
+            showToast(`Selected ${type}: ${i}`, 'info');
+        };
+
+        container.appendChild(item);
+    }
+}
+
+function selectAsset(id, type, url, el) {
+    selectedEffectId = id;
+    selectedEffectType = type;
+    currentAssetImageUrl = url;
+
+    // UI Updates
+    document.getElementById('effectPreviewImg').src = url;
+    document.getElementById('effectPreviewName').innerText = `ID: ${id} (${type})`;
+    document.querySelectorAll('.asset-item').forEach(i => i.classList.remove('selected'));
+    if (el) el.classList.add('selected');
+
+    // Start Animation Preview
+    if (el && el.dataset.frames) {
+        startPreviewAnimation(JSON.parse(el.dataset.frames));
+    }
+}
+
+function startPreviewAnimation(sprites) {
+    if (previewAnimationInterval) clearInterval(previewAnimationInterval);
+    if (!sprites || sprites.length <= 1) return;
+
+    let idx = 0;
+    const img = document.getElementById('effectPreviewImg');
+
+    previewAnimationInterval = setInterval(async () => {
+        idx = (idx + 1) % sprites.length;
+        if (window.sprLoader) {
+            const url = await window.sprLoader.getSpriteImage(sprites[idx]);
+            img.src = url;
+        }
+    }, 150); // ~6.6fps
+}
+
+/* --- CANVAS ANIMATION --- */
+function playAnimation() {
+    if (animationInterval) clearInterval(animationInterval);
+
+    showToast("Playing animation...", "info");
+    let step = 0;
+    const maxSteps = combatAreas.length;
+
+    // Hide all layers first? No, we want to flash them.
+    // Logic: Show Combat 1 -> delay -> Show Combat 2 -> ...
+
+    // This requires renderGrid to support a "visibleCombatIndex" override
+    // For MVP, we'll just toggle the DOM elements opacity manually or use a specific class
+
+    animationInterval = setInterval(() => {
+        currentCombatIndex = step;
+        updateCombatTabs(); // visually sync tab
+        renderGrid(); // This makes the current combat standard and others ghosted
+
+        step++;
+        if (step >= maxSteps) step = 0;
+    }, 500); // 500ms delay between combats
+}
+
+function stopAnimation() {
+    if (animationInterval) clearInterval(animationInterval);
+    showToast("Stopped.", "info");
+    currentCombatIndex = 0;
+    updateCombatTabs();
+    renderGrid();
+}
+
+
+/* --- SMART LOGIC & VALIDATION --- */
+
+function smartSuggestEffect(combatType) {
+    const preset = PRESET_COMBOS[combatType];
+    if (preset) {
+        showToast(`Smart Suggestion: Switched effect to ${preset.name}`, 'success');
+        selectedEffectId = preset.effect;
+        // Ideally trigger a reload of asset selection
+    }
+}
+
+function updateFormulaInputs() {
+    const type = document.getElementById('formulaType').value;
+    const minInput = document.getElementById('minDamage');
+    const maxInput = document.getElementById('maxDamage');
+
+    if (type === 'fixed') {
+        minInput.placeholder = "Fixed Min";
+        maxInput.placeholder = "Fixed Max";
+    } else {
+        minInput.placeholder = "Base / Factor";
+        maxInput.placeholder = "Base / Factor";
+    }
+}
+
+function validateSpell() {
+    const name = document.getElementById('spellName').value;
+    const words = document.getElementById('spellWords').value;
+    const mana = parseInt(document.getElementById('manaCost').value);
+
+    if (!name || name.length < 3) return { valid: false, err: "Spell name is too short." };
+    if (!words) return { valid: false, err: "Words (incantation) are required." };
+
+    // Check if ANY combat has grid data
+    const hasData = combatAreas.some(c => Object.keys(c.grid).length > 0);
+    if (!hasData) {
+        return { valid: false, err: "The spell areas are empty! Draw something." };
+    }
+
+    return { valid: true };
+}
+
+
+/* --- CODE GENERATION ENGINE --- */
+
+/* --- DATA STRUCTURES --- */
+class SpellData {
+    constructor() {
+        this.name = "";
+        this.words = "";
+        this.group = "attack";
+        this.level = 0;
+        this.mana = 0;
+        this.soul = 0;
+        this.premium = false;
+        this.selftarget = false;
+        this.cooldown = 0;
+        this.groupcooldown = 0;
+        this.needlearn = false;
+        this.aggressive = true;
+        this.blockwalls = true;
+        this.range = 0;
+        this.vocations = [];
+        this.scriptPath = "";
+        this.id = 0;
+        this.isRune = false;
+        this.isConjuringSpell = false;
+        this.runeItemId = 0;
+        this.needWeapon = false;
+        this.needCasterTargetOrDirection = false;
+        this.castSound = "";
+        this.impactSound = "";
+        this.allowfaruse = false;
+        this.direction = false;
+        this.playernameparam = false;
+        this.params = false;
+        this.magiclevel = 0;
+        this.charges = 0;
+        this.blocktype = "solid";
+        this.secondarygroup = "";
+        this.secondaryneedlearn = false;
+        this.showInDescription = true;
+
+        // Custom Generator Props
+        this.combatType = "";
+        this.targetType = "";
+        this.formulaType = "";
+        this.min = 0;
+        this.max = 0;
+    }
+}
+
+/* --- CODE GENERATION ENGINE --- */
+
+function generateAndNotify() {
+    const check = validateSpell();
+    if (!check.valid) {
+        showToast(check.err, 'error');
+        return;
+    }
+    openCodeModal();
+}
+
+function generateCode(format) {
+    // Instantiate SpellData
+    const d = new SpellData();
+
+    // Populate from UI
+    d.name = document.getElementById('spellName').value;
+    d.words = document.getElementById('spellWords').value;
+    d.type = document.getElementById('spellType').value;
+
+    // Numeric
+    d.mana = parseInt(document.getElementById('manaCost').value) || 0;
+    d.soul = parseInt(document.getElementById('soulCost').value) || 0;
+    d.level = parseInt(document.getElementById('levelReq').value) || 0;
+    d.magiclevel = parseInt(document.getElementById('magLevelReq').value) || 0;
+    d.cooldown = parseInt(document.getElementById('cooldown').value) || 0;
+    d.groupcooldown = parseInt(document.getElementById('groupCooldown').value) || 0;
+    d.range = parseInt(document.getElementById('spellRange').value) || 0;
+
+    // Booleans
+    d.aggressive = document.getElementById('optAggressive').checked;
+    d.premium = document.getElementById('optPremium').checked;
+    d.blockwalls = document.getElementById('optBlockWalls').checked;
+    d.needlearn = document.getElementById('optNeedLearn').checked;
+    d.needWeapon = document.getElementById('optNeedWeapon').checked;
+    d.allowfaruse = document.getElementById('optAllowFarUse').checked;
+    d.playernameparam = document.getElementById('optPlayerNameParam').checked;
+    d.showInDescription = document.getElementById('optShowInDesc').checked;
+    d.secondaryneedlearn = document.getElementById('optSecNeedLearn').checked;
+
+    // Selects / Strings
+    d.group = document.getElementById('spellGroup') ? document.getElementById('spellGroup').value : 'attack';
+    d.secondarygroup = document.getElementById('spellSecGroup').value;
+    d.castSound = document.getElementById('castSound').value;
+    d.impactSound = document.getElementById('impactSound').value;
+
+    // Core Logic
+    d.combatType = document.getElementById('combatType').value;
+    d.targetType = document.querySelector('input[name="targetType"]:checked').value;
+    d.formulaType = document.getElementById('formulaType').value;
+    d.min = document.getElementById('minDamage').value;
+    d.max = document.getElementById('maxDamage').value;
+    d.vocations = Array.from(document.querySelectorAll('.voc-check:checked')).map(cb => cb.value);
+
+    // Derived
+    if (d.targetType === 'self') d.selftarget = true;
+    if (d.targetType === 'direction') d.direction = true;
+    if (document.getElementById('optNeedTarget').checked) d.needCasterTargetOrDirection = true;
+
+    // Generate Areas for ALL COMBATS
+    const activeCombats = combatAreas.filter(c => Object.keys(c.grid).length > 0);
+
+    if (format === 'revscript') return generateRevScript(d, activeCombats);
+    if (format === 'common') return generateCommonScript(d, activeCombats);
+    if (format === 'xml') return generateXML(d);
+
+    return "-- Error: Unknown format";
+}
+
+function generateAreaMatrix(grid) {
+    // Generate simple {1, 0, 1} matrix for a single grid
+    let minX = currentGridSize, maxX = 0, minY = currentGridSize, maxY = 0;
+    const keys = Object.keys(grid);
+    if (keys.length === 0) return "{}";
+
+    keys.forEach(k => {
+        const [x, y] = k.split(',').map(Number);
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+    });
+
+    const center = Math.floor(currentGridSize / 2);
+    // Expand to include center
+    minX = Math.min(minX, center); maxX = Math.max(maxX, center);
+    minY = Math.min(minY, center); maxY = Math.max(maxY, center);
+
+    let lua = "{\n";
+    for (let y = minY; y <= maxY; y++) {
+        let row = "    {";
+        for (let x = minX; x <= maxX; x++) {
+            const key = `${x},${y}`;
+            const isCenter = (x === center && y === center);
+            const hasEffect = grid[key] !== undefined;
+            let proto = 0;
+            if (isCenter) proto = 3; // Center always 3 locally
+            else if (hasEffect) proto = 1;
+            row += proto + (x === maxX ? "" : ", ");
+        }
+        row += "}" + (y === maxY ? "" : ",\n");
+        lua += row;
+    }
+    lua += "\n}";
+    return lua;
+}
+
+function generateRevScript(d, combats) {
+    let s = `-- Spell: ${d.name}\n-- Generated by OT Spell Maker AI\n\n`;
+    s += `local spell = Spell("${d.type}")\n\n`;
+
+    // 1. Define Combats
+    combats.forEach((c, i) => {
+        const idx = i + 1;
+        s += `local combat${idx} = Combat()\n`;
+        s += `combat${idx}:setParameter(COMBAT_PARAM_TYPE, ${d.combatType})\n`;
+
+        // Dynamic Effect Logic
+        // Find the first cell that has an effect to decide the combat effect
+        let effectId = 'CONST_ME_ENERGYAREA'; // Fallback
+        const gridKeys = Object.keys(c.grid);
+        if (gridKeys.length > 0) {
+            const firstCell = c.grid[gridKeys[0]];
+            // If the cell has an ID, use it. Try to map to CONST if possible, else use raw ID.
+            if (firstCell && firstCell.id !== undefined) {
+                effectId = firstCell.id;
+                // If you have a stored constant name, use it. Otherwise, valid number is fine.
+            }
+        }
+        s += `combat${idx}:setParameter(COMBAT_PARAM_EFFECT, ${effectId})\n`;
+
+        const areaTable = generateAreaMatrix(c.grid);
+        s += `combat${idx}:setArea(createCombatArea(${areaTable}))\n\n`;
+
+        s += `function onGetFormulaValues(player, level, magicLevel)\n`;
+        if (d.formulaType === 'fixed') {
+            s += `    local min = ${d.min}\n    local max = ${d.max}\n`;
+        } else {
+            s += `    local min = (level / 5) + (magicLevel * ${d.min / 100}) + 10\n`;
+            s += `    local max = (level / 5) + (magicLevel * ${d.max / 100}) + 20\n`;
+        }
+        s += `    return -min, -max\nend\n`;
+        s += `combat${idx}:setCallback(CALLBACK_PARAM_LEVELMAGICVALUE, "onGetFormulaValues")\n\n`;
+    });
+
+    // 2. Helper for Delayed Execution (if needed)
+    const hasDelays = combats.some(c => (c.delay || 0) > 0);
+    if (hasDelays) {
+        s += `local function executeCombatDelayed(combat, creatureId, variant)\n`;
+        s += `    local creature = Creature(creatureId)\n`;
+        s += `    if creature then combat:execute(creature, variant) end\n`;
+        s += `end\n\n`;
+    }
+
+    // 3. onCastSpell (Single Definition)
+    s += `function spell.onCastSpell(creature, variant)\n`;
+    combats.forEach((c, i) => {
+        const idx = i + 1;
+        const delay = c.delay || 0;
+        if (delay > 0) {
+            // Safe execution via helper
+            s += `    addEvent(executeCombatDelayed, ${delay}, combat${idx}, creature:getId(), variant)\n`;
+        } else {
+            s += `    combat${idx}:execute(creature, variant)\n`;
+        }
+    });
+    s += `    return true\n`;
+    s += `end\n\n`;
+
+    // 4. Registration
+    s += `spell:name("${d.name}")\n`;
+    s += `spell:words("${d.words}")\n`;
+    s += `spell:group("${d.group}")\n`;
+    if (d.secondarygroup) s += `spell:secondaryGroup("${d.secondarygroup}")\n`;
+    if (d.vocations.length > 0) s += `spell:vocation("${d.vocations.join(';true", "')};true")\n`;
+    s += `spell:id(${d.id || 100})\n`;
+    s += `spell:cooldown(${d.cooldown})\n`;
+    s += `spell:groupCooldown(${d.groupcooldown})\n`;
+    s += `spell:level(${d.level})\n`;
+    s += `spell:magicLevel(${d.magiclevel})\n`;
+    s += `spell:mana(${d.mana})\n`;
+    s += `spell:soul(${d.soul})\n`;
+    s += `spell:range(${d.range})\n`;
+
+    // Boolean properties - Only generate if true (or checked) to reduce clutter & follow user request
+    if (d.aggressive) s += `spell:isAggressive(true)\n`;
+    if (d.premium) s += `spell:isPremium(true)\n`;
+    if (d.blockwalls) s += `spell:blockWalls(true)\n`;
+    if (d.needlearn) s += `spell:needLearn(true)\n`;
+    if (d.needWeapon) s += `spell:needWeapon(true)\n`;
+    if (d.allowfaruse) s += `spell:allowFarUse(true)\n`;
+
+    // Target Type Logic
+    // If self target is explicitly checked/true
+    if (d.selftarget) s += `spell:isSelfTarget(true)\n`;
+
+    // Direction logic
+    if (d.direction) s += `spell:needDirection(true)\n`;
+
+    if (d.needCasterTargetOrDirection) s += `spell:needCasterTargetOrDirection(true)\n`;
+
+    if (d.castSound) s += `spell:castSound("${d.castSound}")\n`;
+    if (d.impactSound) s += `spell:impactSound("${d.impactSound}")\n`;
+
+    s += `spell:register()\n`;
+
+    return s;
+}
+
+function generateCommonScript(d, combats) {
+    let s = `-- Spell: ${d.name}\n-- Generated by OT Spell Maker AI\n-- Modernized for TFS 1.5+\n\n`;
+
+    // 1. Combat Configuration Table
+    s += `local combatConfig = {\n`;
+    combats.forEach((c, i) => {
+        const areaTable = generateAreaMatrix(c.grid);
+        const delay = c.delay || 0;
+
+        // Find effect for this layer
+        let effectId = 'CONST_ME_ENERGYAREA';
+        const gridKeys = Object.keys(c.grid);
+        if (gridKeys.length > 0) {
+            const firstCell = c.grid[gridKeys[0]];
+            if (firstCell && firstCell.id !== undefined) {
+                effectId = firstCell.id;
+            }
+        }
+
+        s += `    -- Combat ${i + 1} (Delay: ${delay}ms)\n`;
+        s += `    {\n`;
+        s += `        delay = ${delay},\n`;
+        s += `        effect = ${effectId},\n`;
+        s += `        type = ${d.combatType},\n`;
+        s += `        area = ${areaTable}\n`;
+        s += `    }${i < combats.length - 1 ? ',' : ''}\n`;
+    });
+    s += `}\n\n`;
+
+    // 2. Create Combat Objects
+    s += `local combats = {}\n\n`;
+    s += `for i, config in ipairs(combatConfig) do\n`;
+    s += `    combats[i] = Combat()\n`;
+    s += `    combats[i]:setParameter(COMBAT_PARAM_TYPE, config.type)\n`;
+    s += `    combats[i]:setParameter(COMBAT_PARAM_EFFECT, config.effect)\n`;
+    s += `    combats[i]:setArea(createCombatArea(config.area))\n\n`;
+
+    // Formula Callback (Inline)
+    s += `    combats[i]:setCallback(CALLBACK_PARAM_LEVELMAGICVALUE, function(player, level, magicLevel)\n`;
+    if (d.formulaType === 'fixed') {
+        s += `        local min = ${d.min}\n        local max = ${d.max}\n`;
+    } else {
+        // Simple scaling example
+        s += `        local min = (level / 5) + (magicLevel * ${d.min / 100}) + 10\n`;
+        s += `        local max = (level / 5) + (magicLevel * ${d.max / 100}) + 20\n`;
+    }
+    s += `        return -min, -max\n`;
+    s += `    end)\n`;
+    s += `end\n\n`;
+
+    // 3. Helper for Delayed Execution
+    s += `local function executeCombatDelayed(combatId, creatureId, variant)\n`;
+    s += `    local creature = Creature(creatureId)\n`;
+    s += `    if not creature then return end\n`;
+    s += `    combats[combatId]:execute(creature, variant)\n`;
+    s += `end\n\n`;
+
+    // 4. Main onCastSpell
+    s += `function onCastSpell(creature, variant)\n`;
+    s += `    -- Group combats by delay for optimization\n`;
+    s += `    local delayGroups = {}\n\n`;
+
+    s += `    for i, config in ipairs(combatConfig) do\n`;
+    s += `        local delay = config.delay\n`;
+    s += `        if not delayGroups[delay] then delayGroups[delay] = {} end\n`;
+    s += `        table.insert(delayGroups[delay], i)\n`;
+    s += `    end\n\n`;
+
+    s += `    -- Execute combats\n`;
+    s += `    for delay, combatIds in pairs(delayGroups) do\n`;
+    s += `        if delay == 0 then\n`;
+    s += `            for _, combatId in ipairs(combatIds) do\n`;
+    s += `                combats[combatId]:execute(creature, variant)\n`;
+    s += `            end\n`;
+    s += `        else\n`;
+    s += `            for _, combatId in ipairs(combatIds) do\n`;
+    s += `                addEvent(executeCombatDelayed, delay, combatId, creature:getId(), variant)\n`;
+    s += `            end\n`;
+    s += `        end\n`;
+    s += `    end\n\n`;
+    s += `    return true\n`;
+    s += `end\n`;
+    return s;
+}
+
+function generateXML(d) {
+    let v = d.vocations.map(voc => `    <vocation name="${voc}"/>`).join("\n");
+    return `<instant group="attack" name="${d.name}" words="${d.words}" level="${d.level}" mana="${d.mana}" premium="${d.premium ? 1 : 0}" aggressive="${d.aggressive ? 1 : 0}" cooldown="${d.cooldown}" groupcooldown="${d.groupCd}" needlearn="${d.needLearn ? 1 : 0}" script="attack/${d.name.toLowerCase().replace(/ /g, '_')}.lua">\n${v}\n</instant>`;
+}
+
+function getEffectName(id) {
+    return "MAGIC_EFFECT_HIT";
+}
+
+/* --- MODAL HANDLING --- */
+function openCodeModal() {
+    document.getElementById('codeModal').classList.add('show');
+    switchCodeType('revscript');
+}
+function closeCodeModal() {
+    document.getElementById('codeModal').classList.remove('show');
+}
+function switchCodeType(type) {
+    currentCodeType = type;
+    document.querySelectorAll('.m-tab').forEach(t => {
+        if (t.innerText.toLowerCase().includes(type === 'common' ? 'common' : (type === 'xml' ? 'xml' : 'rev'))) {
+            t.classList.add('active');
+        } else {
+            t.classList.remove('active');
+        }
+    });
+
+    const code = generateCode(type);
+    document.getElementById('generatedCode').textContent = code;
+}
+function copyCode() {
+    const code = document.getElementById('generatedCode').textContent;
+    navigator.clipboard.writeText(code).then(() => {
+        showToast('Code copied to clipboard!', 'success');
+        document.getElementById('copyStatus').classList.add('show');
+        setTimeout(() => document.getElementById('copyStatus').classList.remove('show'), 2000);
+    });
+}
+function downloadCode() {
+    const code = document.getElementById('generatedCode').textContent;
+    const blob = new Blob([code], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `spell_script.lua`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+}
+
+/* --- UTILS --- */
+function showToast(msg, type = 'info') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.style.background = type === 'error' ? 'var(--danger)' : (type === 'warning' ? 'var(--warning)' : 'var(--success)');
+    toast.style.color = '#000';
+    toast.style.padding = '10px 20px';
+    toast.style.marginTop = '10px';
+    toast.style.borderRadius = '4px';
+    toast.style.fontWeight = 'bold';
+    toast.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
+    toast.innerText = msg;
+    container.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '1'; toast.style.transform = 'translateY(0)'; }, 10);
+    setTimeout(() => { toast.remove(); }, 3000);
+}
+
+/* --- FILE LOADER INTEGRATION --- */
 function updateSettings() {
     const isExtended = document.getElementById('extendedCheck').checked;
     const isTransp = document.getElementById('transparencyCheck').checked;
-
     if (window.sprLoader) {
         window.sprLoader.isExtended = isExtended;
         window.sprLoader.hasTransparency = isTransp;
@@ -348,625 +884,44 @@ function updateSettings() {
     if (window.datLoader) {
         window.datLoader.isExtended = isExtended;
     }
-
     if (isSprLoaded) loadAssets(selectedEffectType);
 }
 
-// Unified File Loader - Now supports folder selection
 async function loadFiles(input) {
     if (input.files && input.files.length > 0) {
         const files = Array.from(input.files);
-        console.log(`${files.length} arquivos encontrados na pasta`);
-
-        // Search for .spr and .dat files in the selected folder
         const sprFile = files.find(f => f.name.toLowerCase().endsWith('.spr'));
         const datFile = files.find(f => f.name.toLowerCase().endsWith('.dat'));
 
         if (!sprFile && !datFile) {
-            alert('❌ Nenhum arquivo .spr ou .dat encontrado na pasta selecionada.');
+            showToast('❌ No .spr or .dat files found.', 'error');
             return;
         }
 
         try {
             const isExtended = document.getElementById('extendedCheck').checked;
             const isTransp = document.getElementById('transparencyCheck').checked;
+            showToast('Loading files...', 'info');
 
-            // Load SPR first
             if (sprFile) {
-                console.log('Loading SPR:', sprFile.name);
                 await window.sprLoader.loadFile(sprFile, { extended: isExtended, transparency: isTransp });
                 isSprLoaded = true;
-                console.log('✓ SPR loaded successfully');
             }
-
-            // Load DAT
             if (datFile) {
-                console.log('Loading DAT:', datFile.name);
                 await window.datLoader.loadFile(datFile, { extended: isExtended });
                 isDatLoaded = true;
-                console.log('✓ DAT loaded successfully');
             }
 
-            // Success message
-            if (sprFile && datFile) {
-                alert(`✓ Arquivos carregados com sucesso!\n\n${sprFile.name}\n${datFile.name}`);
-            } else if (sprFile) {
-                alert(`✓ SPR carregado: ${sprFile.name}\n⚠ Arquivo DAT não encontrado`);
-            } else if (datFile) {
-                alert(`✓ DAT carregado: ${datFile.name}\n⚠ Arquivo SPR não encontrado`);
-            }
+            if (sprFile && datFile) showToast(`✓ Loaded ${sprFile.name}, ${datFile.name}`, 'success');
+            else if (sprFile) showToast(`✓ Loaded SPR. Warning: DAT not found.`, 'warning');
+            else showToast(`✓ Loaded DAT. Warning: SPR not found.`, 'warning');
 
-            // Reload assets with loaded data
             loadAssets(selectedEffectType);
         } catch (e) {
-            console.error('❌ Erro detalhado:', e);
-            console.error('Stack:', e.stack);
-            alert(`❌ Erro ao carregar arquivos:\n\n${e.message}\n\nVerifique o console (F12) para mais detalhes.`);
+            console.error('❌ Error:', e);
+            showToast(`Error: ${e.message}`, 'error');
         }
     }
 }
-
-// Legacy wrappers if needed, but we will switch to single input
-async function loadDatFile(input) { return loadFiles(input); }
-async function loadSprFile(input) { return loadFiles(input); }
-
-/* --- Assets Logic --- */
-function getImageUrl(id, type) {
-    // If SPR/DAT loaded, we handle it in loadAssets via async calls.
-    // This function is mainly for local file fallback.
-    return `src/images/effects/effect_${id}_.png`;
-}
-
-function loadAssets(tab) {
-    const grid = document.getElementById('assetsGrid');
-    grid.innerHTML = '';
-    selectedEffectType = tab;
-
-    // Update active tab
-    document.querySelectorAll('.tab').forEach(btn => {
-        btn.classList.remove('active');
-        if (btn.innerText.toLowerCase() === tab) {
-            btn.classList.add('active');
-        }
-    });
-
-    let list = [];
-    let isCategory = false; // logic based on DAT categories
-
-    // Normalize tab name
-    const type = tab.toLowerCase();
-
-    // FORCE SPR/DAT ONLY - No local fallback
-    if (!isDatLoaded || !isSprLoaded) {
-        grid.innerHTML = `<div style="color: var(--text-muted); padding: 40px; text-align: center; font-size: 0.9rem;">
-            <i class="fa-solid fa-folder-open" style="font-size: 3rem; margin-bottom: 10px; opacity: 0.5;"></i><br>
-            Por favor, carregue os arquivos <strong>.spr</strong> e <strong>.dat</strong> primeiro.
-        </div>`;
-        return;
-    }
-
-    // DAT Mode: Iterate real Effect/Missile IDs
-    if (type === 'magic') {
-        const count = window.datLoader.effectsCount || 0;
-        console.log(`Loading ${count} magic effects from DAT`);
-        for (let i = 1; i <= count; i++) list.push(i);
-        isCategory = true;
-    } else if (type === 'distance') {
-        const count = window.datLoader.missilesCount || 0;
-        console.log(`Loading ${count} distance missiles from DAT`);
-        for (let i = 1; i <= count; i++) list.push(i);
-        isCategory = true;
-    }
-
-    list.forEach(id => {
-        const el = document.createElement('div');
-        el.className = 'asset-item';
-        if (id === selectedEffectId) el.classList.add('selected');
-        el.onclick = () => selectAsset(id, el, type); // Pass type for animation lookup
-
-        const img = document.createElement('img');
-
-        if (isSprLoaded) {
-            // Async loader
-            if (isDatLoaded && isCategory) {
-                // Get Thing Data associated with this ID
-                let categoryKey = 'Effect';
-                if (type === 'distance') categoryKey = 'Missile';
-                if (type === 'items') categoryKey = 'Item';
-
-                const thingData = window.datLoader.getCategorySprites(id, categoryKey);
-
-                if (thingData && thingData.sprites.length > 0) {
-                    // Use first sprite for grid view
-                    const spriteId = thingData.sprites[0];
-                    window.sprLoader.getSpriteImage(spriteId).then(url => {
-                        if (url) img.src = url;
-                    });
-                    el.title = `ID: ${id}`;
-
-                    // Store animation data on element for easy access?
-                    el.dataset.frames = thingData.frames;
-                } else {
-                    el.style.opacity = 0.3;
-                    img.alt = "Empty";
-                }
-            }
-        } else {
-            // NO SPR - Show placeholder
-            el.style.opacity = 0.2;
-            img.alt = "No SPR";
-        }
-
-        const tooltip = document.createElement('div');
-        tooltip.className = 'tooltip';
-        tooltip.innerText = `ID: ${id}`;
-
-        el.appendChild(img);
-        el.appendChild(tooltip);
-        grid.appendChild(el);
-    });
-}
-
-function switchTab(t) {
-    loadAssets(t);
-}
-
-// Animation State
-let animationInterval = null;
-let currentFrame = 0;
-
-async function selectAsset(id, element, type) {
-    // Highlight
-    document.querySelectorAll('.asset-item').forEach(item => item.classList.remove('selected'));
-    element.classList.add('selected');
-
-    // Update selected ID and type
-    selectedEffectId = id;
-    selectedEffectType = type;
-
-    // Store the image URL from the clicked element
-    const imgElement = element.querySelector('img');
-    if (imgElement && imgElement.src) {
-        currentAssetImageUrl = imgElement.src;
-        console.log(`Selected asset ${id}, image URL: ${currentAssetImageUrl}`);
-    }
-
-    // Update selected ID display
-    const idDisplay = document.getElementById('selectedIdDisplay');
-    if (idDisplay) idDisplay.innerText = id;
-
-    // -- Animation Preview --
-    const previewContainer = document.getElementById('previewContainer');
-    const previewImage = document.getElementById('previewImage');
-
-    // Reset
-    if (animationInterval) clearInterval(animationInterval);
-    currentFrame = 0;
-
-    if (isDatLoaded && isSprLoaded) {
-        previewContainer.style.display = 'flex';
-
-        // Determine category key
-        let categoryKey = 'Effect';
-        if (type === 'distance') categoryKey = 'Missile';
-        if (type === 'items') categoryKey = 'Item';
-
-        const thingData = window.datLoader.getCategorySprites(id, categoryKey);
-
-        if (thingData && thingData.sprites && thingData.sprites.length > 0) {
-            const frames = thingData.frames || 1;
-            const patternX = thingData.patternX || 1;
-            const sprites = thingData.sprites;
-
-            // Animation Modes:
-            // 1. Standard Animation: frames > 1. Cycle frames.
-            // 2. Directional Animation (Missiles): frames = 1, patternX > 1. Cycle directions (X).
-
-            const isAnimatedFrame = frames > 1;
-            const isAnimatedView = !isAnimatedFrame && patternX > 1;
-            const loopMax = isAnimatedFrame ? frames : (isAnimatedView ? patternX : 1);
-
-            // Function to update frame
-            const updateFrame = () => {
-                let spriteIndex = 0;
-
-                if (isAnimatedFrame) {
-                    // Stride = totalSprites / frames
-                    // Assuming frames are the top-level block
-                    const stride = sprites.length / frames;
-                    spriteIndex = Math.floor(currentFrame * stride);
-                } else if (isAnimatedView) {
-                    // Stride for X?
-                    // Order: Z -> Y -> X -> L -> W -> H (from ThingType.as)
-                    // If others are 1, then just X indices.
-                    // Sprites = [X0, X1, X2]
-                    // We just pick currentFrame (which is currentX)
-                    // But wait, there are Layers, Width, Height.
-                    // Assuming W=1, H=1, Layers=1 for simple missiles.
-                    // If W>1, we need to skip W*H*L sprites per X.
-                    const layers = thingData.layers || 1;
-                    const width = thingData.width || 1;
-                    const height = thingData.height || 1;
-                    const chunkSize = layers * width * height;
-
-                    // Pattern Y and Z?
-                    // Usually PatternY=1, Z=1 for simple missiles.
-                    // If PatternY > 1 (e.g. 3x3), we might want to animate Y too?
-                    // Let's stick to X (Direction) for now.
-
-                    spriteIndex = currentFrame * chunkSize;
-                }
-
-                // Safety
-                if (spriteIndex < sprites.length) {
-                    const realSpriteId = sprites[spriteIndex];
-                    window.sprLoader.getSpriteImage(realSpriteId).then(url => {
-                        if (url) previewImage.src = url;
-                    });
-                }
-
-                currentFrame = (currentFrame + 1) % loopMax;
-            };
-
-            // Run immediately
-            updateFrame();
-
-            // Start Interval if animated
-            if (loopMax > 1) {
-                animationInterval = setInterval(updateFrame, 200); // 200ms default speed
-            }
-        }
-    } else {
-        // Local preview
-        previewContainer.style.display = 'none'; // Or show local image
-    }
-}
-function filterAssets() {
-    const term = document.getElementById('detailsSearch').value.toLowerCase();
-    const items = document.querySelectorAll('.asset-item');
-
-    items.forEach(item => {
-        const id = item.querySelector('.asset-tooltip').innerText.split(' ')[1];
-        if (id.includes(term)) {
-            item.style.display = 'flex';
-        } else {
-            item.style.display = 'none';
-        }
-    });
-}
-
-/* --- Lua Generation --- */
-function generateLuaCode() {
-    const center = Math.floor(currentGridSize / 2);
-
-    // Get all properties
-    const name = document.getElementById('spellName').value || 'spell';
-    const spellWork = document.getElementById('spellWork').value;
-    const reworkType = document.getElementById('reworkType').value;
-    const effectType = document.getElementById('effectTypeSelect').value;
-    const effectMode = document.getElementById('effectMode').value;
-    // const effectDelay = document.getElementById('effectDelay').value; // Unused
-    const misfireId = document.getElementById('misfireId').value;
-    const sgmX = document.getElementById('sgmX').value;
-    const sgmY = document.getElementById('sgmY').value;
-    const posX = document.getElementById('posX').value;
-    const posY = document.getElementById('posY').value;
-    const drawnOnTop = document.getElementById('drawnOnTop').value;
-    const combatType = document.getElementById('combatType').value;
-    const minDamage = document.getElementById('minDamage').value;
-    const maxDamage = document.getElementById('maxDamage').value;
-    const areaType = document.getElementById('areaType').value;
-    const manaCost = document.getElementById('spellMana').value;
-    const minLevel = document.getElementById('spellLevel').value;
-    const cooldown = document.getElementById('spellCooldown').value;
-
-    // Header with metadata
-    let fullScript = `-- ${name}\n-- Generated by OT SpellMaker\n-- Spell Work: ${spellWork}\n-- Rework: ${reworkType}\n\n`;
-
-    // Generate code for each combat
-    combatAreas.forEach((combat, combatIndex) => {
-        const combatVar = `combat${combatIndex + 1}`;
-        let luaMatrix = [];
-
-        // Build area for THIS combat only
-        for (let y = 0; y < currentGridSize; y++) {
-            let row = [];
-            for (let x = 0; x < currentGridSize; x++) {
-                const key = `${x},${y}`;
-                let hasMark = false;
-                // Check if THIS combat has effect in this cell
-                if (sharedGridData[key]) {
-                    hasMark = sharedGridData[key].some(e => e.combatIndex === combatIndex);
-                }
-                if (x === center && y === center) {
-                    row.push(hasMark ? 3 : 2);
-                } else {
-                    row.push(hasMark ? 1 : 0);
-                }
-            }
-            luaMatrix.push("{" + row.join(", ") + "}");
-        }
-        const areaString = "{\\n    " + luaMatrix.join(",\\n    ") + "\\n}";
-
-        fullScript += `-- ${combat.name} Configuration (Delay: ${combat.delay}ms)\n`;
-        fullScript += `local ${combatVar} = Combat()\n`;
-        fullScript += `${combatVar}:setParameter(COMBAT_PARAM_TYPE, ${combatType})\n`;
-        fullScript += `${combatVar}:setParameter(COMBAT_PARAM_EFFECT, ${effectType})\n`;
-
-        // Add damage configuration
-        fullScript += `\n-- Damage Configuration\n`;
-        fullScript += `function onGetFormulaValues(player, level, magicLevel)\n`;
-        fullScript += `    local min = ${minDamage}\n`;
-        fullScript += `    local max = ${maxDamage}\n`;
-        fullScript += `    return -min, -max\n`;
-        fullScript += `end\n`;
-        fullScript += `${combatVar}:setCallback(CALLBACK_PARAM_LEVELMAGICVALUE, "onGetFormulaValues")\n\n`;
-
-        // Area configuration
-        fullScript += `-- Combat Area\n`;
-        fullScript += `local area${combatIndex + 1} = createCombatArea(${areaString})\n`;
-        fullScript += `${combatVar}:setArea(area${combatIndex + 1})\n\n`;
-    });
-
-    // onCastSpell function with effect configuration
-    fullScript += `-- Spell Cast Function\n`;
-    fullScript += `function onCastSpell(creature, variant)\n`;
-    fullScript += `    local player = creature:getPlayer()\n`;
-    fullScript += `    if not player then\n`;
-    fullScript += `        return false\n`;
-    fullScript += `    end\n\n`;
-
-    // Effect mode implementation
-    if (effectMode === 'send-magic') {
-        fullScript += `    -- SendMagic Effect Configuration\n`;
-        fullScript += `    local position = player:getPosition()\n`;
-
-        if (posX !== '0' && posX !== 0 && posX !== '') {
-            fullScript += `    position.x = position.x + ${posX}\n`;
-        }
-        if (posY !== '0' && posY !== 0 && posY !== '') {
-            fullScript += `    position.y = position.y + ${posY}\n`;
-        }
-
-        if (sgmX !== '0' && sgmX !== 0 && sgmX !== '' || sgmY !== '0' && sgmY !== 0 && sgmY !== '') {
-            fullScript += `    -- SendMagic Offsets: SGM-X=${sgmX}, SGM-Y=${sgmY}\n`;
-        }
-        fullScript += `    position:sendMagicEffect(${effectType})\n\n`;
-    }
-
-    // Execute combats with delays
-    fullScript += `    -- Execute Combats\n`;
-    combatAreas.forEach((combat, combatIndex) => {
-        const combatVar = `combat${combatIndex + 1}`;
-        console.log(`Combat ${combatIndex + 1} delay in generation:`, combat.delay);
-
-        if (combat.delay === 0 || combat.delay === '0') {
-            fullScript += `    ${combatVar}:execute(creature, variant)\n`;
-        } else {
-            fullScript += `    addEvent(function()\n`;
-            fullScript += `        if player and player:isPlayer() then\n`;
-            fullScript += `            ${combatVar}:execute(creature, variant)\n`;
-            fullScript += `        end\n`;
-            fullScript += `    end, ${combat.delay})\n`;
-        }
-    });
-
-    fullScript += `\n    return true\n`;
-    fullScript += `end\n`;
-
-    // Add spell registration info as comment
-    fullScript += `\n-- Spell Registration Info:\n`;
-    fullScript += `-- Mana Cost: ${manaCost}\n`;
-    fullScript += `-- Min Level: ${minLevel}\n`;
-    fullScript += `-- Cooldown: ${cooldown}ms\n`;
-    fullScript += `-- Area Type: ${areaType}\n`;
-    if (misfireId) {
-        fullScript += `-- Misfire ID: ${misfireId}\n`;
-    }
-    fullScript += `-- Drawn On Top: ${drawnOnTop}\n`;
-
-    document.getElementById('modalCodeOutput').textContent = fullScript;
-}
-
-/* --- Generate with Success Notification --- */
-function generateAndNotify() {
-    generateLuaCode();
-    showSuccessNotification();
-}
-
-/* --- Success Notification --- */
-function showSuccessNotification() {
-    // Create notification element
-    const notification = document.createElement('div');
-    notification.className = 'success-notification';
-    notification.innerHTML = `
-        <i class="fa-solid fa-check-circle"></i>
-        <span>Script gerado com sucesso!</span>
-    `;
-
-    document.body.appendChild(notification);
-
-    // Trigger animation
-    setTimeout(() => {
-        notification.classList.add('show');
-    }, 10);
-
-    // Remove after 3 seconds
-    setTimeout(() => {
-        notification.classList.remove('show');
-        setTimeout(() => {
-            notification.remove();
-        }, 300);
-    }, 3000);
-}
-
-/* --- Animation Logic --- */
-let animationTimeouts = [];
-
-function playAnimation() {
-    const gridCells = document.querySelectorAll('#spell-grid .grid-cell img:not(.center-player-img)');
-    if (gridCells.length === 0) {
-        alert('No effects to animate! Paint some cells first.');
-        return;
-    }
-
-    gridCells.forEach((img, index) => {
-        setTimeout(() => {
-            img.style.animation = 'none';
-            img.offsetHeight; /* trigger reflow */
-            img.style.animation = 'popIn 0.5s ease-out';
-        }, index * 100); // Stagger animation
-    });
-}
-
-function stopAnimation() {
-    animationTimeouts.forEach(timeout => clearTimeout(timeout));
-    animationTimeouts = [];
-    renderGrid(); // Restore current combat's grid
-}
-
-/* --- Zoom Controls --- */
-function zoomGrid(direction) {
-    const zoomStep = 25; // 25% increments
-    const minZoom = 50;
-    const maxZoom = 300; // Increased for better visibility
-
-    currentZoom = Math.max(minZoom, Math.min(maxZoom, currentZoom + (direction * zoomStep)));
-
-    // Update CSS variable for grid cell size
-    const baseSize = 32; // Base cell size in pixels
-    const newSize = Math.round(baseSize * (currentZoom / 100));
-    document.documentElement.style.setProperty('--grid-cell-size', `${newSize}px`);
-
-    // Update zoom level display
-    document.getElementById('zoomLevel').textContent = `${currentZoom}%`;
-
-    // Re-render grid with new size
-    renderGrid();
-
-    // Center scroll if possible
-    setTimeout(() => centerCanvas(), 100);
-}
-
-function fitToScreen() {
-    const container = document.querySelector('.canvas-container');
-    const grid = document.getElementById('spell-grid');
-
-    if (!container || !grid) return;
-
-    const containerWidth = container.clientWidth - 40; // Account for padding
-    const containerHeight = container.clientHeight - 40;
-
-    const baseSize = 32;
-    const gridPixelSize = currentGridSize * baseSize;
-
-    // Calculate zoom to fit
-    const widthZoom = (containerWidth / gridPixelSize) * 100;
-    const heightZoom = (containerHeight / gridPixelSize) * 100;
-    const optimalZoom = Math.floor(Math.min(widthZoom, heightZoom));
-
-    // Clamp to valid range
-    // Clamp to valid range
-    currentZoom = Math.max(50, Math.min(300, optimalZoom));
-
-    // Apply zoom
-    const newSize = Math.round(baseSize * (currentZoom / 100));
-    document.documentElement.style.setProperty('--grid-cell-size', `${newSize}px`);
-    document.getElementById('zoomLevel').textContent = `${currentZoom}%`;
-
-    renderGrid();
-    setTimeout(() => centerCanvas(), 100);
-}
-
-function centerCanvas() {
-    const container = document.querySelector('.canvas-container');
-    if (!container) return;
-
-    // Center scrollbars
-    container.scrollLeft = (container.scrollWidth - container.clientWidth) / 2;
-    container.scrollTop = (container.scrollHeight - container.clientHeight) / 2;
-}
-
-/* --- Spell Work UI Update --- */
-function updateSpellWorkUI() {
-    const spellWork = document.getElementById('spellWork').value;
-    // Future: Add specific UI changes based on spell work type
-    // For now, just log the change
-    console.log('Spell work type changed to:', spellWork);
-    // Removed generateLuaCode() - only generate when clicking "Generate Script" button
-}
-
-// Initialize on page load
-window.addEventListener('DOMContentLoaded', () => {
-    init();
-});
-
-/* --- Code Modal Functions --- */
-function openCodeModal() {
-    // Code is already generated, just show modal
-    const modal = document.getElementById('codeModal');
-    modal.style.display = 'block';
-
-    // Prevent body scroll
-    document.body.style.overflow = 'hidden';
-}
-
-function closeCodeModal() {
-    const modal = document.getElementById('codeModal');
-    modal.style.display = 'none';
-    document.body.style.overflow = '';
-}
-
-// Close modal when clicking outside
-window.onclick = function (event) {
-    const modal = document.getElementById('codeModal');
-    if (event.target === modal) {
-        closeCodeModal();
-    }
-}
-
-// ESC key to close modal
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        closeCodeModal();
-    }
-});
-
-function copyCode() {
-    const codeText = document.getElementById('modalCodeOutput').textContent;
-
-    // Modern clipboard API
-    if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(codeText).then(() => {
-            alert('✅ Code copied to clipboard!');
-        }).catch(err => {
-            console.error('Copy failed:', err);
-            fallbackCopy(codeText);
-        });
-    } else {
-        fallbackCopy(codeText);
-    }
-}
-
-function fallbackCopy(text) {
-    // Fallback for older browsers
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.select();
-
-    try {
-        document.execCommand('copy');
-        alert('✅ Code copied to clipboard!');
-    } catch (err) {
-        alert('❌ Failed to copy code. Please copy manually.');
-        console.error('Fallback copy failed:', err);
-    }
-
-    document.body.removeChild(textarea);
-}
-
-// Initialize on Load
-document.addEventListener('DOMContentLoaded', init);
+window.sprLoader = window.sprLoader || { loadFile: async () => { }, getSpriteImage: async () => { } };
+window.datLoader = window.datLoader || { loadFile: async () => { } };
